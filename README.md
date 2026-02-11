@@ -1,6 +1,3 @@
-<<<<<<< HEAD
-# kube-sentinel
-=======
 # 🛡️ Kube-Sentinel
 
 **Kubernetes 集群自愈监控系统** — 基于 Informer（List-Watch）机制的实时事件监控与告警
@@ -117,17 +114,17 @@ kube-sentinel/
 
 ### 为什么用 Informer 而不是轮询？
 
-> Informer 基于 List-Watch 机制：首次 List 全量数据写入本地缓存，之后通过 Watch（HTTP 长连接）监听增量变化。查询时直接读内存缓存，不需要频繁请求 API Server，性能提升 10x+。
+Informer 建立 List-Watch 通道：首次从 API Server List 全量对象写入本地缓存，后续 Watch 会推送增量事件。所有事件在内存中聚合，读写不再频繁访问 API Server，从而大幅降低延迟和资源消耗。
 
 ### WaitForCacheSync 的作用？
 
-> 确保 Informer 的本地缓存已从 API Server 同步完毕。如果跳过这步，可能在缓存未就绪时做出错误判断（如误认为 Pod 不存在）。
+在处理事件前调用 `WaitForCacheSync` 确保本地 SharedInformer 缓存已经与 API Server 同步完成，否则可能因为缓存未准备好而漏掉 Pod 或误判 Pod 状态。
 
 ### 如何处理 DeletedFinalStateUnknown？
 
-> 当 Informer 错过了删除事件（如网络抖动），会收到 Tombstone 对象。正确做法是从 Tombstone 中提取原始对象，避免类型断言失败。
+当 Informer 因网络问题丢失删除事件时，会收到一个 `DeletedFinalStateUnknown` Tombstone。正确做法是从 Tombstone 中提取原始对象，而不是直接断言类型为 `*v1.Pod`，否则会触发 panic。
 
 ## License
 
 MIT
->>>>>>> b93e002 (Initial commit: Kube-Sentinel Informer + Prometheus integration)
+
