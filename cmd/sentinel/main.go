@@ -45,7 +45,8 @@ func main() {
 	}
 
 	// 4. 全局 stop 通道 —— 用于优雅关闭所有 goroutine
-	stopCh := make(chan struct{})
+	// 使用缓冲通道防止关闭信号在 goroutine 启动前到达导致阻塞
+	stopCh := make(chan struct{}, 1)
 
 	// 5. 启动 Pod Informer（核心功能）
 	watcher := monitor.NewPodWatcher(

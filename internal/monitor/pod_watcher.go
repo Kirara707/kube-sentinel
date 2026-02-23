@@ -173,7 +173,20 @@ func (pw *PodWatcher) handleDelete(pod *v1.Pod) {
 // checkContainerStatuses 检查容器状态，触发重启告警
 // 这是监控的核心逻辑
 func (pw *PodWatcher) checkContainerStatuses(pod *v1.Pod) {
-	for _, cs := range pod.Status.ContainerStatuses {
+	// 检查普通容器
+	pw.checkContainers(pod.Status.ContainerStatuses, pod, false)
+	// 检查 InitContainer
+	pw.checkContainers(pod.Status.InitContainerStatuses, pod, true)
+}
+
+// checkContainers 统一的容器状态检查逻辑
+func (pw *PodWatcher) checkContainers(statuses []v1.ContainerStatus, pod *v1.Pod, isInit bool) {
+	containerType := "container"
+	if isInit {
+		containerType = "initContainer"
+	}
+
+	for _, cs := range statuses {
 		// 检测重启次数超过阈值
 		if cs.RestartCount >= pw.restartThreshold {
 			alert := RestartAlert{
@@ -212,23 +225,11 @@ func (pw *PodWatcher) checkContainerStatuses(pod *v1.Pod) {
 				logger.Log.Warnw("⚠️  容器异常状态",
 					"pod", pod.Name,
 					"namespace", pod.Namespace,
-					"container", cs.Name,
+					containerType, cs.Name,
 					"reason", reason,
 					"message", cs.State.Waiting.Message,
 				)
 			}
-		}
-	}
-
-	// 同时检查 InitContainer 状态
-	for _, cs := range pod.Status.InitContainerStatuses {
-		if cs.State.Waiting != nil && cs.State.Waiting.Reason != "" {
-			logger.Log.Warnw("⚠️  InitContainer 异常",
-				"pod", pod.Name,
-				"namespace", pod.Namespace,
-				"initContainer", cs.Name,
-				"reason", cs.State.Waiting.Reason,
-			)
 		}
 	}
 }

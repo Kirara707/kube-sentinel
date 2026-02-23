@@ -32,18 +32,59 @@ type AppConfig struct {
 func Load() *AppConfig {
 	cfg := &AppConfig{
 		KubeConfigPath:    getEnv("KUBECONFIG", ""),
-		ResyncInterval:    getDurationEnv("RESYNC_INTERVAL", 30*time.Second),
+		ResyncInterval:    getEnvWithParse("RESYNC_INTERVAL", 30*time.Second, time.ParseDuration),
 		Namespace:         getEnv("WATCH_NAMESPACE", ""), // 空 = 所有命名空间
-		RestartThreshold:  getInt32Env("RESTART_THRESHOLD", 3),
+		RestartThreshold:  getEnvWithParse("RESTART_THRESHOLD", int32(3), parseToInt32),
 		PrometheusURL:     getEnv("PROMETHEUS_URL", "http://localhost:9090"),
-		PrometheusEnabled: getBoolEnv("PROMETHEUS_ENABLED", false),
-		QueryInterval:     getDurationEnv("QUERY_INTERVAL", 60*time.Second),
+		PrometheusEnabled: getEnvWithParse("PROMETHEUS_ENABLED", false, strconv.ParseBool),
+		QueryInterval:     getEnvWithParse("QUERY_INTERVAL", 60*time.Second, time.ParseDuration),
 		LogLevel:          getEnv("LOG_LEVEL", "info"),
+	}
+
+	// Validate configuration
+	if errs := cfg.Validate(); len(errs) > 0 {
+		for _, err := range errs {
+			fmt.Printf("[Config] ⚠️  Validation error: %v\n", err)
+		}
+		// Non-blocking: log warnings but continue with defaults
 	}
 
 	fmt.Printf("[Config] 已加载配置: Namespace=%s, RestartThreshold=%d, PrometheusEnabled=%v\n",
 		cfg.NamespaceDisplay(), cfg.RestartThreshold, cfg.PrometheusEnabled)
 	return cfg
+}
+
+// Validate validates the configuration and returns any errors found
+func (c *AppConfig) Validate() []error {
+	var errs []error
+
+	// Validate RestartThreshold
+	if c.RestartThreshold < 0 {
+		errs = append(errs, fmt.Errorf("RestartThreshold must be non-negative, got %d", c.RestartThreshold))
+	}
+
+	// Validate ResyncInterval
+	if c.ResyncInterval < 0 {
+		errs = append(errs, fmt.Errorf("ResyncInterval must be non-negative, got %v", c.ResyncInterval))
+	}
+	if c.ResyncInterval > 0 && c.ResyncInterval < 10*time.Second {
+		errs = append(errs, fmt.Errorf("ResyncInterval recommended minimum is 10s, got %v", c.ResyncInterval))
+	}
+
+	// Validate QueryInterval
+	if c.QueryInterval < 0 {
+		errs = append(errs, fmt.Errorf("QueryInterval must be non-negative, got %v", c.QueryInterval))
+	}
+
+	// Validate LogLevel
+	validLogLevels := map[string]bool{
+		"debug": true, "info": true, "warn": true, "error": true,
+	}
+	if !validLogLevels[c.LogLevel] {
+		errs = append(errs, fmt.Errorf("LogLevel must be one of: debug, info, warn, error, got %s", c.LogLevel))
+	}
+
+	return errs
 }
 
 // NamespaceDisplay 返回可读的命名空间显示
@@ -56,6 +97,20 @@ func (c *AppConfig) NamespaceDisplay() string {
 
 // --- 环境变量辅助函数 ---
 
+// Parser is a generic parser function type for environment variables
+type Parser[T any] func(string) (T, error)
+
+// getEnv reads an environment variable and parses it using the provided parser
+func getEnvWithParse[T any](key string, fallback T, parse Parser[T]) T {
+	if val := os.Getenv(key); val != "" {
+		if parsed, err := parse(val); err == nil {
+			return parsed
+		}
+	}
+	return fallback
+}
+
+// getEnv reads a string environment variable
 func getEnv(key, fallback string) string {
 	if val := os.Getenv(key); val != "" {
 		return val
@@ -63,32 +118,8 @@ func getEnv(key, fallback string) string {
 	return fallback
 }
 
-func getDurationEnv(key string, fallback time.Duration) time.Duration {
-	if val := os.Getenv(key); val != "" {
-		d, err := time.ParseDuration(val)
-		if err == nil {
-			return d
-		}
-	}
-	return fallback
-}
-
-func getInt32Env(key string, fallback int32) int32 {
-	if val := os.Getenv(key); val != "" {
-		n, err := strconv.ParseInt(val, 10, 32)
-		if err == nil {
-			return int32(n)
-		}
-	}
-	return fallback
-}
-
-func getBoolEnv(key string, fallback bool) bool {
-	if val := os.Getenv(key); val != "" {
-		b, err := strconv.ParseBool(val)
-		if err == nil {
-			return b
-		}
-	}
-	return fallback
+// parseToInt32 converts a string to int32
+func parseToInt32(s string) (int32, error) {
+	n, err := strconv.ParseInt(s, 10, 32)
+	return int32(n), err
 }
